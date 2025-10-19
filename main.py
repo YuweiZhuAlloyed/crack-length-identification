@@ -2,6 +2,7 @@ import os
 import argparse
 from pathlib import Path
 from src.trad_crack_mask_extractor import GMMCrackMaskExtractor, ThresholdCrackMaskExtractor
+from src.sam_crack_mask_extractor import SAMCrackMaskExtractor
 
 
 if __name__ == "__main__":
@@ -14,15 +15,20 @@ if __name__ == "__main__":
                         help="Path to the output directory to save masks.")
     args = parser.parse_args()
 
-    input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
+    sam_extractor = SAMCrackMaskExtractor(
+        input_dir=args.input_dir, save_dir=args.output_dir
+    )
+    sam_extractor.extract()
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # input_dir = Path(args.input_dir)
+    # output_dir = Path(args.output_dir)
 
-    for image_name in os.listdir(input_dir):
-        input_path = input_dir / image_name
-        output_path = output_dir / f"mask_{image_name}"
-        extractor = GMMCrackMaskExtractor(
-            image_path=input_path.as_posix(), save_path=output_path.as_posix())
-        extractor.extract()
-        print(f"Processed {image_name}, saved mask to {output_path}")
+    # output_dir.mkdir(parents=True, exist_ok=True)
+
+    # for image_name in os.listdir(input_dir):
+    #     input_path = input_dir / image_name
+    #     output_path = output_dir / f"mask_{image_name}"
+    #     extractor = GMMCrackMaskExtractor(
+    #         image_path=input_path.as_posix(), save_path=output_path.as_posix())
+    #     extractor.extract()
+    #     print(f"Processed {image_name}, saved mask to {output_path}")
