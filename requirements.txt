@@ -1,8 +1,5 @@
 opencv-python
-pycocotools
 matplotlib
-onnxruntime
-onnx
 polars
 jupyter
 scikit-learn
@@ -10,3 +7,5 @@ scikit-image
 scipy
 timm
 rich
+fastexcel
+tkinter

@@ -24,6 +24,8 @@ class SAMCrackMaskExtractor(ICrackMaskExtractor):
         sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
         self.predictor = SamPredictor(sam)
 
+        self.prompt_points = np.array([[1200, 1000], [1150, 1000]])
+
     def extract(self):
         agg_results = []
 
@@ -37,39 +39,43 @@ class SAMCrackMaskExtractor(ICrackMaskExtractor):
                 output_path = self.output_dir / f"mask_{image_name}"
                 plot_path = self.output_dir / f"plot_{image_name}.png"
 
-                image = cv2.imread(input_path, cv2.IMREAD_GRAYSCALE)
+                original_image = cv2.imread(input_path)
+
+                h, w, _ = original_image.shape
+
+                image = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
                 image = cv2.equalizeHist(image)
                 image = cv2.medianBlur(image, 39)
                 image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
                 self.predictor.set_image(image)
 
-                input_box = np.array([950, 1000, 1450, 5000])
+                input_box = np.array([900, 900, 1500, 5000])
 
                 masks, confidence, _ = self.predictor.predict(
-                    point_coords=np.array([[1200, 1000]]),
-                    point_labels=np.array([1]),
+                    point_coords=self.prompt_points,
+                    point_labels=np.ones(self.prompt_points.shape[0]),
                     box=input_box[None, :],
                     multimask_output=False,
                 )
 
-                # print(f"Processed {image_name}, saved mask to {output_path}")
-                mask = masks[0]
-                mask = (mask * 255).astype(np.uint8)
+                mask: np.ndarray = masks[0]
+                mask = mask.astype(np.uint8)
 
-                h, w = mask.shape
-                mask_norm = (mask / 255.0).reshape(h, w, 1)
-                color = np.array([30/255, 144/255, 255/255])
-                img_rgb = image.astype(np.float32) / 255.0
-
-                overlay = img_rgb * (1 - mask_norm) + \
-                    mask_norm * color.reshape(1, 1, 3)
-                overlay_uint8 = (overlay * 255).astype(np.uint8)
+                mask_ = np.ones(
+                    (mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+                mask_[:, :, 0] = mask * 255
+                mask_[:, :, 1] = mask * 100
+                mask_[:, :, 2] = mask * 100
 
                 x0, y0 = int(input_box[0]), int(input_box[1])
                 rect_w = int(input_box[2] - input_box[0])
                 rect_h = int(input_box[3] - input_box[1])
 
-                overlay_bgr = cv2.cvtColor(overlay_uint8, cv2.COLOR_RGB2BGR)
+                overlay_bgr = cv2.addWeighted(original_image, 0.5, mask_,
+                                              0.5, 0)
+
+                cv2.circle(overlay_bgr, (1200, 1000), radius=20,
+                           color=(255, 0, 0), thickness=-1)
                 cv2.rectangle(overlay_bgr, (x0, y0), (x0 + rect_w, y0 + rect_h),
                               color=(0, 255, 0), thickness=2)
 
@@ -83,20 +89,50 @@ class SAMCrackMaskExtractor(ICrackMaskExtractor):
                     largest_mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
 
                 try:
-                    crack_length = simple_crack_estimator(
+                    crack_distance_mm, min_y, max_y, pt1_l, pt2_l, pt1_r, pt2_r, start_of_crack, end_of_crack, xl, yl, xr, yr = simple_crack_estimator(
                         largest_mask,
-                        min_y=1100,
-                        num_construction_pts=10,
+                        num_construction_pts=6,
+                        interval=100,
                         save_path=plot_path.as_posix())
+
+                    construction_image = original_image.copy()
+                    cv2.line(construction_image, pt1_l, pt2_l, (0, 255, 0),
+                             7, lineType=cv2.LINE_AA)
+                    cv2.line(construction_image, pt1_r, pt2_r, (0, 255, 0),
+                             7, lineType=cv2.LINE_AA)
+
+                    cv2.line(construction_image, (0, min_y), (w, min_y),
+                             (255, 255, 0), 7, lineType=cv2.LINE_AA)
+                    cv2.line(construction_image, (0, max_y), (w, max_y),
+                             (255, 255, 0), 7, lineType=cv2.LINE_AA)
+
+                    cv2.circle(construction_image, start_of_crack,
+                               30, (0, 0, 255), -1, lineType=cv2.LINE_AA)
+                    cv2.circle(construction_image, end_of_crack,
+                               30, (255, 0, 0), -1, lineType=cv2.LINE_AA)
+
+                    for xi, yi in zip(xl, yl):
+                        cv2.circle(construction_image, (int(xi), int(yi)), radius=20,
+                                   color=(0, 255, 0), thickness=-1, lineType=cv2.LINE_AA)
+                    for xi, yi in zip(xr, yr):
+                        cv2.circle(construction_image, (int(xi), int(yi)), radius=20,
+                                   color=(0, 255, 0), thickness=-1, lineType=cv2.LINE_AA)
+
+                    # cv2.imwrite(plot_path.as_posix(), construction_image)
+
+                    cv2.imwrite(plot_path.as_posix(), np.hstack([
+                        original_image, overlay_bgr, construction_image
+                    ]), [cv2.IMWRITE_PNG_COMPRESSION, 9])
+
                 except Exception as e:
                     print(
                         f"Could not estimate crack length for {image_name}: {e}")
-                    crack_length = np.nan
+                    crack_distance_mm = np.nan
 
                 agg_results.append({
                     "image_name": image_name,
                     "seg_confidence": confidence[0],
-                    "crack_length_mm": crack_length,
+                    "crack_length_mm": crack_distance_mm,
 
                 })
 
